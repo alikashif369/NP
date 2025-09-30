@@ -35,6 +35,8 @@ const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
     else addItem(product);
   };
 
+  // ...existing code...
+
   return (
     <Card className="group overflow-hidden border-0 shadow-leaf hover:shadow-hover transition-elegant bg-gradient-product h-full flex flex-col rounded-leaflet">
       <div className="relative">
@@ -42,6 +44,13 @@ const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
           src={product.image}
           alt={product.name}
           className="w-full h-64 object-cover group-hover:scale-105 transition-elegant"
+          loading="lazy"
+          decoding="async"
+          width={400}
+          height={256}
+          onError={(e) => {
+            e.currentTarget.src = '/placeholder.svg';
+          }}
         />
         {product.badge && (
           <Badge className="absolute top-3 left-3 chip rounded-full">

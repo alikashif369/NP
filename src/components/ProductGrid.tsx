@@ -1,48 +1,37 @@
 import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
 import ProductCard from "./ProductCard";
 import { Button } from "@/components/ui/button";
-import focusProducts from "@/assets/product-1.jpg";
-import beautyProducts from "@/assets/product-2.jpg";
-import supplementsProducts from "@/assets/product-3.jpg";
+import { productService } from "@/services/productService";
+import { Product } from "@/data/products";
+import { Loader2 } from "lucide-react";
 
 const ProductGrid = () => {
-  const products = [
-    {
-      id: "1",
-      name: "Memory & Focus Booster",
-      description: "Cognitive support formula to enhance focus and clarity",
-      price: 49.99,
-      originalPrice: 59.99,
-      rating: 4.8,
-      reviewCount: 1024,
-      image: focusProducts,
-      badge: "BEST SELLER",
-      category: "focus",
-    },
-    {
-      id: "2",
-      name: "Beauty Glow Bundle",
-      description: "Holistic skin & hair support with powerful antioxidants",
-      price: 69.99,
-      rating: 4.7,
-      reviewCount: 876,
-      image: beautyProducts,
-      badge: "NEW",
-      category: "beauty",
-    },
-    {
-      id: "3",
-      name: "Daily Essentials Stack",
-      description: "Foundational wellness pack for energy, sleep, and calm",
-      price: 89.99,
-      originalPrice: 109.99,
-      rating: 4.9,
-      reviewCount: 1622,
-      image: supplementsProducts,
-      badge: "TRENDING",
-      category: "bestsellers",
-    },
-  ];
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadFeaturedProducts = async () => {
+      try {
+        setLoading(true);
+        const response = await productService.getProducts({ limit: 6 });
+        if (response.success) {
+          const featuredProducts = response.products
+            .filter(p => p.isFeatured)
+            .slice(0, 3)
+            .map(p => productService.convertToFrontendProduct(p));
+          setProducts(featuredProducts);
+        }
+      } catch (error) {
+        console.error('Error loading featured products:', error);
+        // Fallback to empty array or static data if needed
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFeaturedProducts();
+  }, []);
 
   return (
     <section className="py-16">
@@ -57,13 +46,19 @@ const ProductGrid = () => {
         </div>
 
         {/* Product Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
-          {products.map((product) => (
-            <div className="h-full" key={product.id}>
-              <ProductCard product={product} />
-            </div>
-          ))}
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
+            {products.map((product) => (
+              <div className="h-full" key={product.id}>
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="text-center mt-10">
           <Link to="/products">
