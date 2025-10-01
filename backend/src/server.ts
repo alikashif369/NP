@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import authRoutes from './routes/authRoutes';
 import productRoutes from './routes/productRoutes';
+import { startStatsUpdateJob } from './jobs/updateProductStats';
 
 // Load environment variables
 dotenv.config();
@@ -200,4 +201,7 @@ app.listen(PORT, () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoints: http://localhost:${PORT}/api/auth`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Start background job for updating product stats
+  startStatsUpdateJob();
 });

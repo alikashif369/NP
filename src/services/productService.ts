@@ -152,8 +152,8 @@ class ProductService {
     }
   }
 
-  // Convert backend product to frontend format
-  convertToFrontendProduct(backendProduct: BackendProduct, useThumbnail: boolean = true) {
+  // Convert backend product to frontend format (simplified for performance)
+  convertToFrontendProduct(backendProduct: BackendProduct) {
     const getImageUrl = (url: string) => {
       // If URL already starts with http, return as is
       if (url.startsWith('http')) {

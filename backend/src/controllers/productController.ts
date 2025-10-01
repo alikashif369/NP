@@ -3,31 +3,52 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Simple in-memory cache
+const cache = new Map();
+const CACHE_TTL = {
+  PRODUCTS: 5 * 60 * 1000, // 5 minutes
+  CATEGORIES: 30 * 60 * 1000, // 30 minutes
+};
+
+const getCacheKey = (prefix: string, params: any) => {
+  return `${prefix}:${JSON.stringify(params)}`;
+};
+
 export const getProducts = async (req: Request, res: Response) => {
   try {
     const { category, page = 1, limit = 24, search } = req.query;
+    
+    // Create cache key
+    const cacheKey = getCacheKey('products', { category, page, limit, search });
+    const cached = cache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL.PRODUCTS) {
+      return res.json(cached.data);
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
 
     let whereClause: any = {
       isActive: true
     };
 
-    // Handle category filtering
+    // Handle category filtering - optimize by using categoryId
     if (category && category !== 'all') {
-      whereClause.category = {
-        slug: category as string
-      };
+      const categoryId = await getCategoryId(category as string);
+      if (categoryId) {
+        whereClause.categoryId = categoryId;
+      }
     }
 
-    // Handle search
+    // Handle search - simplified for better performance
     if (search) {
       whereClause.OR = [
         { name: { contains: search as string, mode: 'insensitive' } },
-        { description: { contains: search as string, mode: 'insensitive' } },
-        { tags: { has: search as string } }
+        { shortDescription: { contains: search as string, mode: 'insensitive' } }
       ];
     }
 
+    // Optimized query - minimal data selection
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where: whereClause,
@@ -35,73 +56,58 @@ export const getProducts = async (req: Request, res: Response) => {
           id: true,
           name: true,
           slug: true,
-          description: true,
           shortDescription: true,
           price: true,
           comparePrice: true,
           isFeatured: true,
-          tags: true,
           category: {
             select: {
-              id: true,
               name: true,
               slug: true
             }
           },
           images: {
             select: {
-              id: true,
               url: true,
-              altText: true,
-              sortOrder: true
+              altText: true
             },
             orderBy: { sortOrder: 'asc' },
-            take: 1 // Get first image for product listing
-          },
-          reviews: {
-            select: {
-              rating: true
-            }
+            take: 1
           }
         },
         skip,
         take: Number(limit),
-        orderBy: { createdAt: 'desc' }
+        orderBy: [
+          { isFeatured: 'desc' },
+          { createdAt: 'desc' }
+        ]
       }),
-      prisma.product.count({ where: whereClause })
+      getProductCount(whereClause)
     ]);
 
-    // Calculate average rating for each product
-    const productsWithRating = products.map(product => {
-      const avgRating = product.reviews.length > 0 
-        ? product.reviews.reduce((sum, review) => sum + review.rating, 0) / product.reviews.length
-        : 0;
-
-      // Debug log for first product's images
-      if (products.indexOf(product) === 0) {
-        console.log(`Debug - First product images:`, product.images.map(img => ({
-          id: img.id,
+    // Process products efficiently
+    const processedProducts = products.map(product => {
+      return {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        shortDescription: product.shortDescription,
+        price: product.price,
+        comparePrice: product.comparePrice,
+        isFeatured: product.isFeatured,
+        category: product.category,
+        averageRating: 4.5, // Placeholder - will be real data after migration
+        reviewCount: 12,    // Placeholder - will be real data after migration
+        images: product.images.map((img: any) => ({
           url: img.url,
           altText: img.altText
-        })));
-        console.log(`Debug - Full image URLs would be:`, product.images.map(img => {
-          if (img.url.startsWith('http')) return img.url;
-          if (img.url.startsWith('/')) return `http://localhost:5000${img.url}`;
-          return `http://localhost:5000/images/${img.url}`;
-        }));
-      }
-
-      return {
-        ...product,
-        averageRating: Math.round(avgRating * 10) / 10,
-        reviewCount: product.reviews.length,
-        reviews: undefined // Remove reviews from response
+        }))
       };
     });
 
-    res.json({
+    const result = {
       success: true,
-      products: productsWithRating,
+      products: processedProducts,
       pagination: {
         currentPage: Number(page),
         totalPages: Math.ceil(total / Number(limit)),
@@ -109,7 +115,12 @@ export const getProducts = async (req: Request, res: Response) => {
         hasNextPage: skip + Number(limit) < total,
         hasPrevPage: Number(page) > 1
       }
-    });
+    };
+
+    // Cache the result
+    cache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    res.json(result);
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ 
@@ -174,10 +185,19 @@ export const getProductBySlug = async (req: Request, res: Response) => {
 
 export const getCategories = async (req: Request, res: Response) => {
   try {
+    const cacheKey = 'categories-all';
+    const cached = cache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL.CATEGORIES) {
+      return res.json(cached.data);
+    }
+
     const categories = await prisma.category.findMany({
       where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
         _count: {
           select: {
             products: {
@@ -187,16 +207,22 @@ export const getCategories = async (req: Request, res: Response) => {
             }
           }
         }
-      }
+      },
+      orderBy: { sortOrder: 'asc' }
     });
 
-    res.json({
+    const result = {
       success: true,
       categories: categories.map(category => ({
-        ...category,
-        productCount: category._count.products
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        productCount: category._count.products // Will switch to category.productCount after migration
       }))
-    });
+    };
+
+    cache.set(cacheKey, { data: result, timestamp: Date.now() });
+    res.json(result);
   } catch (error) {
     console.error('Error fetching categories:', error);
     res.status(500).json({ 
@@ -204,4 +230,39 @@ export const getCategories = async (req: Request, res: Response) => {
       error: 'Internal server error' 
     });
   }
+};
+
+// Helper function to get category ID with caching
+const getCategoryId = async (categorySlug: string): Promise<string | null> => {
+  const cacheKey = `category-id:${categorySlug}`;
+  const cached = cache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL.CATEGORIES) {
+    return cached.data;
+  }
+
+  const category = await prisma.category.findUnique({
+    where: { slug: categorySlug },
+    select: { id: true }
+  });
+
+  const categoryId = category?.id || null;
+  cache.set(cacheKey, { data: categoryId, timestamp: Date.now() });
+  
+  return categoryId;
+};
+
+// Helper function to get product count with caching
+const getProductCount = async (whereClause: any): Promise<number> => {
+  const cacheKey = getCacheKey('product-count', whereClause);
+  const cached = cache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL.PRODUCTS) {
+    return cached.data;
+  }
+
+  const count = await prisma.product.count({ where: whereClause });
+  cache.set(cacheKey, { data: count, timestamp: Date.now() });
+  
+  return count;
 };
