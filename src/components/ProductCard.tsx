@@ -17,6 +17,7 @@ interface Product {
   image: string;
   imageSrcSet?: string;
   fullImage?: string;
+  slug?: string;
   badge?: string;
 }
 
@@ -129,7 +130,7 @@ const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
             variant="minimal"
             size="sm"
             className="w-full"
-            onClick={() => navigate(`/product/${product.id}`)}
+            onClick={() => navigate(`/product/${product.slug ?? product.id}`)}
           >
             Open View
           </Button>

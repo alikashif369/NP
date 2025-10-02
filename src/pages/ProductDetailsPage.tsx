@@ -1,25 +1,47 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useCart } from "@/contexts/CartContext";
-import { getProducts } from "@/data/products";
+import { productService } from "@/services/productService";
 
 const ProductDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addItem } = useCart();
   const [quantity, setQuantity] = useState(1);
-  const [product, setProduct] = useState<any>(null);
+  const { data: productData, isLoading, isError } = useQuery<any>({
+    queryKey: ['product', id],
+    queryFn: async () => {
+      if (!id) throw new Error('Missing id');
+      const resp = await productService.getProductBySlug(id as string);
+      if (!resp.success) throw new Error('Product not found');
+      return productService.convertToFrontendProduct(resp.product);
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: 1,
+  });
 
-  useEffect(() => {
-    const found = getProducts().find(p => p.id === id);
-    setProduct(found || null);
-  }, [id]);
+  const product = productData || null;
 
-  if (!product) {
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 md:px-0 py-16">
+          <div className="flex flex-col items-center justify-center min-h-[40vh]">
+            <p className="text-lg text-muted-foreground mb-4">Loading product...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (isError || !product) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
