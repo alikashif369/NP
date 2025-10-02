@@ -30,6 +30,12 @@ import Kids from "./pages/benefit/Kids";
 import Adaptogens from "./pages/benefit/Adaptogens";
 import FoundationalWellness from "./pages/benefit/FoundationalWellness";
 import Vegetarian from "./pages/benefit/Vegetarian";
+// New backend category benefit pages
+import Skincare from "./pages/benefit/Skincare";
+import AntiAging from "./pages/benefit/AntiAging";
+import WellnessSupplements from "./pages/benefit/WellnessSupplements";
+import DetoxCleanse from "./pages/benefit/DetoxCleanse";
+import NADSupplements from "./pages/benefit/NADSupplements";
 // import AdminDashboard from "./pages/AdminDashboard"; // File not found
 import { RequireAdmin } from "./components/ProtectedRoute";
 
@@ -64,6 +70,13 @@ const AppRouter = () => {
       <Route path="/benefit/foundational-wellness" element={<FoundationalWellness />} />
       <Route path="/benefit/cognitive-health" element={<CognitiveHealth />} />
       <Route path="/benefit/vegetarian" element={<Vegetarian />} />
+      
+      {/* Backend category benefit pages */}
+      <Route path="/benefit/skincare" element={<Skincare />} />
+      <Route path="/benefit/anti-aging" element={<AntiAging />} />
+      <Route path="/benefit/wellness-supplements" element={<WellnessSupplements />} />
+      <Route path="/benefit/detox-cleanse" element={<DetoxCleanse />} />
+      <Route path="/benefit/nad-supplements" element={<NADSupplements />} />
 
       {/* Admin */}
       <Route path="/admin/login" element={<AdminLogin />} />
