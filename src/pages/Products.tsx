@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import ProductCard from '@/components/ProductCard';
@@ -103,56 +104,70 @@ const Products = () => {
     }
   }, [searchParams]);
 
-  // Reload products when category, search, or page changes
-  useEffect(() => {
-    const loadFilteredProducts = async () => {
-      try {
-        setLoading(true);
-        const productsResponse = await productService.getProducts({
-          category: selectedCategory === 'all' ? undefined : selectedCategory,
-          search: debouncedSearchTerm || undefined,
-          page: currentPage,
-          limit: PAGE_SIZE
-        });
+  // Use React Query for products with automatic caching and deduplication
+  const productsQuery = useQuery({
+    queryKey: ['products', { 
+      category: selectedCategory, 
+      search: debouncedSearchTerm, 
+      page: currentPage,
+      limit: PAGE_SIZE 
+    }],
+    queryFn: async () => {
+      const response = await productService.getProducts({
+        category: selectedCategory === 'all' ? undefined : selectedCategory,
+        search: debouncedSearchTerm || undefined,
+        page: currentPage,
+        limit: PAGE_SIZE
+      });
+      
+      if (response.success) {
+        const frontendProducts = response.products.map(p => 
+          productService.convertToFrontendProduct(p)
+        );
         
-        if (productsResponse.success) {
-          const frontendProducts = productsResponse.products.map(p => 
-            productService.convertToFrontendProduct(p)
-          );
-          
-          // Apply client-side sorting (for current page only)
-          let sorted = [...frontendProducts];
-          switch (sortBy) {
-            case 'price-low':
-              sorted.sort((a, b) => a.price - b.price);
-              break;
-            case 'price-high':
-              sorted.sort((a, b) => b.price - a.price);
-              break;
-            case 'rating':
-              sorted.sort((a, b) => b.rating - a.rating);
-              break;
-            case 'newest':
-              sorted.sort((a, b) => b.reviewCount - a.reviewCount);
-              break;
-            default:
-              // Keep original order for 'featured'
-              break;
-          }
-          
-          setProducts(sorted);
-          setPagination(productsResponse.pagination);
+        // Apply client-side sorting
+        let sorted = [...frontendProducts];
+        switch (sortBy) {
+          case 'price-low':
+            sorted.sort((a, b) => a.price - b.price);
+            break;
+          case 'price-high':
+            sorted.sort((a, b) => b.price - a.price);
+            break;
+          case 'rating':
+            sorted.sort((a, b) => b.rating - a.rating);
+            break;
+          case 'newest':
+            sorted.sort((a, b) => b.reviewCount - a.reviewCount);
+            break;
+          default:
+            break;
         }
-      } catch (err) {
-        console.error('Error loading filtered products:', err);
-        setError('Failed to load products. Please try again.');
-      } finally {
-        setLoading(false);
+        
+        return { products: sorted, pagination: response.pagination };
       }
-    };
+      throw new Error('Failed to load products');
+    },
+    placeholderData: (previousData) => previousData, // Keep previous data while loading new data
+    staleTime: 1000 * 60 * 2, // 2 minutes
+    gcTime: 1000 * 60 * 5, // 5 minutes (formerly cacheTime)
+    retry: 1,
+  });
 
-    loadFilteredProducts();
-  }, [selectedCategory, debouncedSearchTerm, sortBy, currentPage]);
+  // Update local state when query data changes
+  useEffect(() => {
+    if (productsQuery.data && 'products' in productsQuery.data) {
+      setProducts(productsQuery.data.products);
+      setPagination(productsQuery.data.pagination);
+      setLoading(false);
+      setError(null);
+    } else if (productsQuery.isError) {
+      setError('Failed to load products. Please try again.');
+      setLoading(false);
+    } else if (productsQuery.isLoading) {
+      setLoading(true);
+    }
+  }, [productsQuery.data, productsQuery.isError, productsQuery.isLoading]);
 
   const handleCategoryChange = (category: string) => {
     setSelectedCategory(category);

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import ProductCard from "./ProductCard";
 import { Button } from "@/components/ui/button";
 import { productService } from "@/services/productService";
@@ -7,31 +7,22 @@ import { Product } from "@/data/products";
 import { Loader2 } from "lucide-react";
 
 const ProductGrid = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadFeaturedProducts = async () => {
-      try {
-        setLoading(true);
-        const response = await productService.getProducts({ limit: 6 });
-        if (response.success) {
-          const featuredProducts = response.products
-            .filter(p => p.isFeatured)
-            .slice(0, 3)
-            .map(p => productService.convertToFrontendProduct(p));
-          setProducts(featuredProducts);
-        }
-      } catch (error) {
-        console.error('Error loading featured products:', error);
-        // Fallback to empty array or static data if needed
-      } finally {
-        setLoading(false);
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['featured-products'],
+    queryFn: async () => {
+      const response = await productService.getProducts({ limit: 6 });
+      if (response.success) {
+        return response.products
+          .filter(p => p.isFeatured)
+          .slice(0, 3)
+          .map(p => productService.convertToFrontendProduct(p));
       }
-    };
-
-    loadFeaturedProducts();
-  }, []);
+      return [];
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    gcTime: 1000 * 60 * 10, // 10 minutes (formerly cacheTime)
+    retry: 1,
+  }) as { data: Product[], isLoading: boolean };
 
   return (
     <section className="py-16">
@@ -46,7 +37,7 @@ const ProductGrid = () => {
         </div>
 
         {/* Product Grid */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>

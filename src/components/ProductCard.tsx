@@ -1,3 +1,4 @@
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,8 @@ interface Product {
   rating: number;
   reviewCount: number;
   image: string;
+  imageSrcSet?: string;
+  fullImage?: string;
   badge?: string;
 }
 
@@ -42,6 +45,8 @@ const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
       <div className="relative">
         <img
           src={product.image}
+          {...(product.imageSrcSet ? { srcSet: product.imageSrcSet } : {})}
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           alt={product.name}
           className="w-full h-64 object-cover group-hover:scale-105 transition-elegant"
           loading="lazy"
@@ -134,4 +139,4 @@ const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
   );
 };
 
-export default ProductCard;
+export default React.memo(ProductCard);

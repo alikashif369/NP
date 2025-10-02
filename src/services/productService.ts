@@ -1,5 +1,6 @@
 // API service for backend communication
 import { productCache } from '@/utils/cache';
+import { getThumbnailUrl, generateSrcSet, getFullSizeUrl } from '@/utils/imageUtils';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -62,6 +63,7 @@ export interface SingleProductResponse {
 
 class ProductService {
   private baseUrl = API_BASE_URL;
+  private abortControllers = new Map<string, AbortController>();
 
   async getProducts(params?: {
     category?: string;
@@ -86,28 +88,40 @@ class ProductService {
 
     const url = `${this.baseUrl}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
     
-    // Check cache first (only for non-search queries to avoid stale results)
-    if (!params?.search) {
-      const cached = productCache.get(url);
-      if (cached) {
-        return cached;
-      }
+    // Check cache first (cache everything including search for 2 minutes)
+    const cached = productCache.get(url);
+    if (cached) {
+      return cached;
     }
     
+    // Cancel any previous request for the same endpoint
+    const requestKey = 'products';
+    if (this.abortControllers.has(requestKey)) {
+      this.abortControllers.get(requestKey)?.abort();
+    }
+    
+    const abortController = new AbortController();
+    this.abortControllers.set(requestKey, abortController);
+    
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: abortController.signal,
+      });
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
       
-      // Cache the response (but not search results)
-      if (!params?.search) {
-        productCache.set(url, data, 2 * 60 * 1000); // 2 minutes cache
-      }
+      // Cache all responses for 2 minutes
+      productCache.set(url, data, 2 * 60 * 1000);
       
+      this.abortControllers.delete(requestKey);
       return data;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request cancelled');
+      }
       console.error('Error fetching products:', error);
       throw error;
     }
@@ -155,16 +169,11 @@ class ProductService {
   // Convert backend product to frontend format (simplified for performance)
   convertToFrontendProduct(backendProduct: BackendProduct) {
     const getImageUrl = (url: string) => {
-      // If URL already starts with http, return as is
-      if (url.startsWith('http')) {
-        return url;
-      }
-      // If URL starts with /, prepend backend server URL
-      if (url.startsWith('/')) {
-        return `http://localhost:5000${encodeURI(url)}`;
-      }
-      // Otherwise, assume it's a path that needs /images/ prefix
-      return `http://localhost:5000/images/${encodeURI(url)}`;
+      if (!url) return '/placeholder.svg';
+      // If URL is absolute, return as is
+      if (url.startsWith('http')) return url;
+      // Use thumbnail for list images
+      return getThumbnailUrl(url);
     };
 
     return {
@@ -178,11 +187,13 @@ class ProductService {
       image: backendProduct.images.length > 0 
         ? getImageUrl(backendProduct.images[0].url)
         : '/placeholder.svg',
+      imageSrcSet: backendProduct.images.length > 0 ? generateSrcSet(backendProduct.images[0].url) : undefined,
+      fullImage: backendProduct.images.length > 0 ? getFullSizeUrl(backendProduct.images[0].url) : undefined,
       badge: backendProduct.isFeatured ? 'FEATURED' : undefined,
       category: backendProduct.category.slug,
       slug: backendProduct.slug,
       tags: backendProduct.tags,
-      images: backendProduct.images.map(img => getImageUrl(img.url))
+      images: backendProduct.images.map(img => getFullSizeUrl(img.url))
     };
   }
 }

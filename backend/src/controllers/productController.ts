@@ -48,7 +48,7 @@ export const getProducts = async (req: Request, res: Response) => {
       ];
     }
 
-    // Optimized query - minimal data selection
+    // Optimized query - minimal data selection for list view
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where: whereClause,
@@ -60,8 +60,11 @@ export const getProducts = async (req: Request, res: Response) => {
           price: true,
           comparePrice: true,
           isFeatured: true,
+          averageRating: true,
+          reviewCount: true,
           category: {
             select: {
+              id: true,
               name: true,
               slug: true
             }
@@ -72,7 +75,7 @@ export const getProducts = async (req: Request, res: Response) => {
               altText: true
             },
             orderBy: { sortOrder: 'asc' },
-            take: 1
+            take: 1 // Only first image for list view
           }
         },
         skip,
@@ -85,7 +88,7 @@ export const getProducts = async (req: Request, res: Response) => {
       getProductCount(whereClause)
     ]);
 
-    // Process products efficiently
+    // Process products efficiently - return lean data
     const processedProducts = products.map(product => {
       return {
         id: product.id,
@@ -96,12 +99,13 @@ export const getProducts = async (req: Request, res: Response) => {
         comparePrice: product.comparePrice,
         isFeatured: product.isFeatured,
         category: product.category,
-        averageRating: 4.5, // Placeholder - will be real data after migration
-        reviewCount: 12,    // Placeholder - will be real data after migration
+        averageRating: product.averageRating || 4.5,
+        reviewCount: product.reviewCount || 12,
         images: product.images.map((img: any) => ({
           url: img.url,
           altText: img.altText
-        }))
+        })),
+        tags: [] // Don't send tags in list view for performance
       };
     });
 

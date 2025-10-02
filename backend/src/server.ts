@@ -2,11 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import path from 'path';
 import authRoutes from './routes/authRoutes';
 import productRoutes from './routes/productRoutes';
 import { startStatsUpdateJob } from './jobs/updateProductStats';
+import fs from 'fs';
+import sharp from 'sharp';
 
 // Load environment variables
 dotenv.config();
@@ -15,6 +18,18 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+// Add compression middleware for better performance
+app.use(compression({
+  level: 6, // Compression level (0-9)
+  threshold: 1024, // Only compress responses larger than 1KB
+  filter: (req: express.Request, res: express.Response) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
 // Configure helmet but allow cross-origin resource loads for images and other assets
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
@@ -81,9 +96,11 @@ app.use('/images', cors({ origin: imagesOriginChecker, credentials: true, method
   req.url = decodeURIComponent(req.url);
   next();
 }, express.static(path.join(__dirname, '../Images'), {
-  // Add cache headers and other options
-  maxAge: '1d',
-  etag: false
+  // Add cache headers and other options for better performance
+  maxAge: '7d', // Cache for 7 days
+  etag: true,
+  lastModified: true,
+  immutable: true
 }));
 
 // Also serve images at /backend/Images path to match frontend expectations
@@ -92,10 +109,70 @@ app.use('/backend/Images', cors({ origin: imagesOriginChecker, credentials: true
   req.url = decodeURIComponent(req.url);
   next();
 }, express.static(path.join(__dirname, '../Images'), {
-  // Add cache headers and other options
-  maxAge: '1d',
-  etag: false
+  // Add cache headers and other options for better performance
+  maxAge: '7d', // Cache for 7 days
+  etag: true,
+  lastModified: true,
+  immutable: true
 }));
+
+// On-demand image resizing endpoint
+// Example: /img/resize?path=product.jpg&w=400&q=80
+app.get('/img/resize', async (req, res) => {
+  const imgPathRaw = (req.query.path as string) || '';
+  const width = parseInt((req.query.w as string) || '400', 10);
+  const quality = parseInt((req.query.q as string) || '80', 10);
+
+  if (!imgPathRaw) return res.status(400).send('Missing path');
+
+  // Decode and normalize the incoming path. Accept both '/images/...' and 'images/...'
+  let relPath = decodeURIComponent(imgPathRaw);
+  // strip leading slashes
+  relPath = relPath.replace(/^\/+/, '');
+  // if it starts with images/ remove that segment to avoid duplicate paths
+  relPath = relPath.replace(/^images\/+/i, '');
+  // normalize to remove ../ etc
+  relPath = path.normalize(relPath);
+  if (relPath.includes('..')) return res.status(400).send('Invalid path');
+
+  const sourcePath = path.join(__dirname, '..', 'Images', relPath);
+  if (!fs.existsSync(sourcePath)) return res.status(404).send('Not found');
+
+  const cacheDir = path.join(__dirname, '..', 'Images', '.cache');
+  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+  const safeKeyName = relPath.replace(/[/\\]/g, '_');
+  const cacheKey = `${safeKeyName}_w${width}_q${quality}`;
+  const cachedFile = path.join(cacheDir, cacheKey);
+
+  try {
+    // Check for cached webp or jpeg
+    const acceptsWebP = (req.headers.accept || '').includes('image/webp');
+    const ext = acceptsWebP ? '.webp' : '.jpg';
+    const cachedFileWithExt = cachedFile + ext;
+
+    if (fs.existsSync(cachedFileWithExt)) {
+      res.setHeader('Content-Type', acceptsWebP ? 'image/webp' : 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable'); // 7 days
+      return fs.createReadStream(cachedFileWithExt).pipe(res);
+    }
+
+    let transformer = sharp(sourcePath).resize({ width });
+    if (acceptsWebP) {
+      transformer = transformer.webp({ quality });
+    } else {
+      transformer = transformer.jpeg({ quality });
+    }
+    const buffer = await transformer.toBuffer();
+    fs.writeFileSync(cachedFileWithExt, buffer);
+    res.setHeader('Content-Type', acceptsWebP ? 'image/webp' : 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    return res.end(buffer);
+  } catch (err) {
+    console.error('Image resize error', err);
+    return res.status(500).send('Error processing image');
+  }
+});
 
 // Health check route
 app.get('/health', (req, res) => {

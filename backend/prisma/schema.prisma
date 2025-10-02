@@ -127,6 +127,10 @@ model Product {
   reviews       Review[]
   wishlistItems WishlistItem[]
 
+  @@index([categoryId])
+  @@index([isFeatured, createdAt])
+  @@index([isActive])
+  @@index([slug])
   @@map("products")
 }
 
